@@ -1,0 +1,14 @@
+/Users/nathanhornby/3DCS/CosmosMaze/bin/Debug/net6.0/CosmosMaze
+/Users/nathanhornby/3DCS/CosmosMaze/bin/Debug/net6.0/CosmosMaze.deps.json
+/Users/nathanhornby/3DCS/CosmosMaze/bin/Debug/net6.0/CosmosMaze.runtimeconfig.json
+/Users/nathanhornby/3DCS/CosmosMaze/bin/Debug/net6.0/CosmosMaze.dll
+/Users/nathanhornby/3DCS/CosmosMaze/bin/Debug/net6.0/CosmosMaze.pdb
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.GeneratedMSBuildEditorConfig.editorconfig
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.AssemblyInfoInputs.cache
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.AssemblyInfo.cs
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.csproj.CoreCompileInputs.cache
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.dll
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/refint/CosmosMaze.dll
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.pdb
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.genruntimeconfig.cache
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/ref/CosmosMaze.dll
