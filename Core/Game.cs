@@ -26,8 +26,15 @@ internal sealed class Game
 
     private int _levelIndex;
     private int _levelSeed;
+    private int _floorIndex;
+    private int _floorCount;
 
+    private Maze[] _floors = Array.Empty<Maze>();
     private Maze _maze = null!;
+    private int[] _floorRows = Array.Empty<int>();
+    private int[] _floorCols = Array.Empty<int>();
+    private float[] _floorStartX = Array.Empty<float>();
+    private float[] _floorStartZ = Array.Empty<float>();
     private int _rows;
     private int _cols;
     private float _cell;
@@ -40,6 +47,8 @@ internal sealed class Game
     private bool _spawned;
     private bool _goalPlaced;
     private int _goalLevelIndex;
+    private int[] _stairCellX = Array.Empty<int>();
+    private int[] _stairCellZ = Array.Empty<int>();
     private byte _wallColorR;
     private byte _wallColorG;
     private byte _wallColorB;
@@ -64,17 +73,149 @@ internal sealed class Game
 
     private void BuildLevel()
     {
-        int size = _levelSizes[_levelIndex % _levelSizes.Length];
-        _maze = Maze.Generate(size, _levelSeed);
+        _floorCount = 3 + (_levelIndex % 2);
+        _floors = new Maze[_floorCount];
+        _floorRows = new int[_floorCount];
+        _floorCols = new int[_floorCount];
+        _floorStartX = new float[_floorCount];
+        _floorStartZ = new float[_floorCount];
+
+        int s = _levelSeed;
+        int NextSizeIndex()
+        {
+            s = (int)((s * 48271L) % 2147483647L);
+            int idx = s % _levelSizes.Length;
+            if (idx < 0) idx = -idx;
+            return idx;
+        }
+
+        for (int i = 0; i < _floorCount; i++)
+        {
+            int size = _levelSizes[NextSizeIndex()];
+            _floors[i] = Maze.Generate(size, _levelSeed + i * 1013);
+            _floorRows[i] = _floors[i].Rows;
+            _floorCols[i] = _floors[i].Cols;
+            _floorStartX[i] = -_floorCols[i] * 80f * 0.5f;
+            _floorStartZ[i] = -_floorRows[i] * 80f * 0.5f;
+        }
+
+        _maze = _floors[0];
         _rows = _maze.Rows;
         _cols = _maze.Cols;
         _cell = 80f;
         _wallH = 80f;
-        _startX = -_cols * _cell * 0.5f;
-        _startZ = -_rows * _cell * 0.5f;
+        _startX = _floorStartX[0];
+        _startZ = _floorStartZ[0];
         _spawned = false;
         _goalPlaced = false;
+        _floorIndex = 0;
+
+        BuildStairs();
         PickWallColor();
+    }
+
+    private void BuildStairs()
+    {
+        if (_floorCount <= 1)
+        {
+            _stairCellX = Array.Empty<int>();
+            _stairCellZ = Array.Empty<int>();
+            return;
+        }
+
+        _stairCellX = new int[_floorCount - 1];
+        _stairCellZ = new int[_floorCount - 1];
+
+        for (int i = 0; i < _floorCount - 1; i++)
+        {
+            FindCornerOpenCellPair(_floors[i], _floors[i + 1], out int sx, out int sz, i);
+            _stairCellX[i] = sx;
+            _stairCellZ[i] = sz;
+            _floors[i].SetCell(sx, sz, 0);
+            _floors[i + 1].SetCell(sx, sz, 0);
+        }
+    }
+
+    private void FindOpenCell(Maze maze, out int cellX, out int cellZ, int seedOffset)
+    {
+        int seed = _levelSeed + seedOffset * 997;
+        int x = (seed ^ (seed >> 8)) % maze.Cols;
+        int z = (seed ^ (seed >> 16)) % maze.Rows;
+        if (x < 0) x = -x;
+        if (z < 0) z = -z;
+
+        for (int tries = 0; tries < maze.Rows * maze.Cols; tries++)
+        {
+            if (!maze.IsWall(x, z))
+            {
+                cellX = x;
+                cellZ = z;
+                return;
+            }
+            x = (x + 3) % maze.Cols;
+            z = (z + 5) % maze.Rows;
+        }
+
+        cellX = 1;
+        cellZ = 1;
+    }
+
+    private void FindCornerOpenCellPair(Maze mazeA, Maze mazeB, out int cellX, out int cellZ, int floorIndex)
+    {
+        int minCols = mazeA.Cols < mazeB.Cols ? mazeA.Cols : mazeB.Cols;
+        int minRows = mazeA.Rows < mazeB.Rows ? mazeA.Rows : mazeB.Rows;
+        int cornerSize = Math.Max(2, minCols / 4);
+        int centerX = minCols / 2;
+        int centerZ = minRows / 2;
+
+        int corner = (floorIndex + (_levelSeed & 3)) & 3;
+        int xStart = (corner == 0 || corner == 2) ? 0 : minCols - cornerSize;
+        int xEnd = (corner == 0 || corner == 2) ? cornerSize - 1 : minCols - 1;
+        int zStart = (corner == 0 || corner == 1) ? 0 : minRows - cornerSize;
+        int zEnd = (corner == 0 || corner == 1) ? cornerSize - 1 : minRows - 1;
+
+        int bestX = -1;
+        int bestZ = -1;
+        int bestDist = -1;
+        bool bestOpenBoth = false;
+        bool bestOpenEither = false;
+
+        for (int z = zStart; z <= zEnd; z++)
+        {
+            for (int x = xStart; x <= xEnd; x++)
+            {
+                bool openA = !mazeA.IsWall(x, z);
+                bool openB = !mazeB.IsWall(x, z);
+                bool openBoth = openA && openB;
+                bool openEither = openA || openB;
+                if (openEither)
+                {
+                    int dx = x - centerX;
+                    int dz = z - centerZ;
+                    int dist = dx * dx + dz * dz;
+                    if (openBoth || !bestOpenBoth)
+                    {
+                        if (dist > bestDist || (bestOpenBoth != openBoth && openBoth))
+                        {
+                            bestDist = dist;
+                            bestX = x;
+                            bestZ = z;
+                            bestOpenBoth = openBoth;
+                            bestOpenEither = openEither;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (bestDist >= 0 && (bestOpenBoth || bestOpenEither))
+        {
+            cellX = bestX;
+            cellZ = bestZ;
+            return;
+        }
+
+        FindOpenCell(mazeA, out cellX, out cellZ, 17 + floorIndex * 11);
     }
 
     private void PickWallColor()
@@ -196,14 +337,39 @@ internal sealed class Game
 
         PlaceGoalIfNeeded();
 
-        float goalDX = _goalX - _camX;
-        float goalDZ = _goalZ - _camZ;
-        float goalDist = MathF.Sqrt(goalDX * goalDX + goalDZ * goalDZ);
-        if (goalDist < _cell * 0.35f)
+        TryClimbStairs();
+
+        if (_floorIndex == _floorCount - 1)
         {
-            _levelIndex += 1;
-            _levelSeed = (int)(DateTime.UtcNow.Ticks % 1000000000L) + 1;
-            BuildLevel();
+            float goalDX = _goalX - _camX;
+            float goalDZ = _goalZ - _camZ;
+            float goalDist = MathF.Sqrt(goalDX * goalDX + goalDZ * goalDZ);
+            if (goalDist < _cell * 0.35f)
+            {
+                _levelIndex += 1;
+                _levelSeed = (int)(DateTime.UtcNow.Ticks % 1000000000L) + 1;
+                BuildLevel();
+            }
+        }
+    }
+
+    private void TryClimbStairs()
+    {
+        if (_floorIndex >= _floorCount - 1) return;
+        if (!Input.IsDown(Key.W)) return;
+
+        int cellX = (int)MathF.Floor((_camX - _startX) / _cell);
+        int cellZ = (int)MathF.Floor((_camZ - _startZ) / _cell);
+        if (cellX == _stairCellX[_floorIndex] && cellZ == _stairCellZ[_floorIndex])
+        {
+            _floorIndex += 1;
+            _maze = _floors[_floorIndex];
+            _rows = _floorRows[_floorIndex];
+            _cols = _floorCols[_floorIndex];
+            _startX = _floorStartX[_floorIndex];
+            _startZ = _floorStartZ[_floorIndex];
+            _camX = _startX + (_stairCellX[_floorIndex - 1] + 0.5f) * _cell;
+            _camZ = _startZ + (_stairCellZ[_floorIndex - 1] + 0.5f) * _cell;
         }
     }
 
@@ -249,6 +415,11 @@ internal sealed class Game
                     }
                 }
             }
+        }
+
+        if (gx < 0)
+        {
+            FindOpenCell(_maze, out gx, out gz, 29 + _floorIndex * 13);
         }
 
         if (gx >= 0)
@@ -383,16 +554,28 @@ internal sealed class Game
             }
         }
 
-        DrawGoalFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset);
+        if (_floorIndex == _floorCount - 1)
+        {
+            DrawGoalFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset);
+        }
+        else
+        {
+            DrawStairFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset);
+        }
 
         if (_minimapOn) DrawMinimap(forwardX, forwardZ, posX, posZ);
     }
 
     private void DrawGoalFloor(float forwardX, float forwardZ, float planeX, float planeZ, float posX, float posZ, float yOffset)
     {
+        DrawBaseFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset);
         int goalCellX = (int)((_goalX - _startX) / _cell);
         int goalCellZ = (int)((_goalZ - _startZ) / _cell);
+        DrawTileOnFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset, goalCellX, goalCellZ, 20, 220, 80);
+    }
 
+    private void DrawBaseFloor(float forwardX, float forwardZ, float planeX, float planeZ, float posX, float posZ, float yOffset)
+    {
         float rayDirX0 = forwardX - planeX;
         float rayDirZ0 = forwardZ - planeZ;
         float rayDirX1 = forwardX + planeX;
@@ -418,17 +601,8 @@ internal sealed class Game
             {
                 if (worldDist < _wallDepth[x])
                 {
-                    int cellX = (int)floorX;
-                    int cellZ = (int)floorZ;
-                    if (cellX == goalCellX && cellZ == goalCellZ)
-                    {
-                        _frame.SetPixel(x, y, 20, 220, 80);
-                    }
-                    else
-                    {
-                        byte shade = (byte)(20 + MathF.Min(90f, worldDist * 0.35f));
-                        _frame.SetPixel(x, y, shade, shade, shade);
-                    }
+                    byte shade = (byte)(20 + MathF.Min(90f, worldDist * 0.35f));
+                    _frame.SetPixel(x, y, shade, shade, shade);
                 }
 
                 floorX += floorStepX;
@@ -469,8 +643,67 @@ internal sealed class Game
         int dY = mapPad + (int)((_rows - posZ) * mapScale - fzMap - mapScale * 0.15f);
         _frame.DrawRect(dX, dY, mapScale / 3, mapScale / 3, 200, 40, 40);
 
-        int gMapX = mapPad + (int)((_goalX - _startX) / _cell * mapScale - mapScale * 0.25f);
-        int gMapY = mapPad + (int)((_rows - (_goalZ - _startZ) / _cell) * mapScale - mapScale * 0.25f);
-        _frame.DrawRect(gMapX, gMapY, mapScale / 2, mapScale / 2, 20, 220, 80);
+        if (_floorIndex == _floorCount - 1)
+        {
+            int gMapX = mapPad + (int)((_goalX - _startX) / _cell * mapScale - mapScale * 0.25f);
+            int gMapY = mapPad + (int)((_rows - (_goalZ - _startZ) / _cell) * mapScale - mapScale * 0.25f);
+            _frame.DrawRect(gMapX, gMapY, mapScale / 2, mapScale / 2, 20, 220, 80);
+        }
+        else
+        {
+            int sx = _stairCellX[_floorIndex];
+            int sz = _stairCellZ[_floorIndex];
+            int sMapX = mapPad + (int)(sx * mapScale + mapScale * 0.25f);
+            int sMapY = mapPad + (int)((_rows - 1 - sz) * mapScale + mapScale * 0.25f);
+            _frame.DrawRect(sMapX, sMapY, mapScale / 2, mapScale / 2, 40, 120, 220);
+        }
+    }
+
+    private void DrawStairFloor(float forwardX, float forwardZ, float planeX, float planeZ, float posX, float posZ, float yOffset)
+    {
+        int stairX = _stairCellX[_floorIndex];
+        int stairZ = _stairCellZ[_floorIndex];
+        DrawTileOnFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset, stairX, stairZ, 40, 120, 220);
+    }
+
+    private void DrawTileOnFloor(float forwardX, float forwardZ, float planeX, float planeZ, float posX, float posZ, float yOffset, int cellXTarget, int cellZTarget, byte r, byte g, byte b)
+    {
+        float rayDirX0 = forwardX - planeX;
+        float rayDirZ0 = forwardZ - planeZ;
+        float rayDirX1 = forwardX + planeX;
+        float rayDirZ1 = forwardZ + planeZ;
+
+        int halfH = ScreenH / 2;
+        int horizon = (int)(halfH + yOffset);
+        float camHeight = (_wallH * EyeHeightRatio) / _cell;
+
+        for (int y = horizon; y < ScreenH; y++)
+        {
+            int p = y - horizon;
+            if (p <= 0) continue;
+
+            float rowDist = (camHeight * halfH) / p;
+            float floorStepX = rowDist * (rayDirX1 - rayDirX0) / ScreenW;
+            float floorStepZ = rowDist * (rayDirZ1 - rayDirZ0) / ScreenW;
+            float floorX = posX + rowDist * rayDirX0;
+            float floorZ = posZ + rowDist * rayDirZ0;
+            float worldDist = rowDist * _cell;
+
+            for (int x = 0; x < ScreenW; x++)
+            {
+                if (worldDist < _wallDepth[x])
+                {
+                    int cellX = (int)floorX;
+                    int cellZ = (int)floorZ;
+                    if (cellX == cellXTarget && cellZ == cellZTarget)
+                    {
+                        _frame.SetPixel(x, y, r, g, b);
+                    }
+                }
+
+                floorX += floorStepX;
+                floorZ += floorStepZ;
+            }
+        }
     }
 }

@@ -12,3 +12,4 @@
 /Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.pdb
 /Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.genruntimeconfig.cache
 /Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/ref/CosmosMaze.dll
+/Users/nathanhornby/3DCS/CosmosMaze/obj/Debug/net6.0/CosmosMaze.sourcelink.json
