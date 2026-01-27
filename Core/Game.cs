@@ -15,6 +15,7 @@ internal sealed class Game
     private readonly FrameBuffer _frame;
     private readonly float[] _wallDepth;
     private readonly int[] _levelSizes;
+    private readonly Texture[] _wallTextures;
 
     private float _camX;
     private float _camY;
@@ -53,14 +54,32 @@ internal sealed class Game
     private byte _wallColorG;
     private byte _wallColorB;
 
-    public Game()
+    public Game(IAssetLoader assetLoader)
     {
         _frame = new FrameBuffer(ScreenW, ScreenH);
         _wallDepth = new float[ScreenW];
         _levelSizes = new[] { 5, 7, 9, 11, 13, 15, 17, 19, 21, 25 };
         _levelIndex = 0;
         _levelSeed = (int)(DateTime.UtcNow.Ticks % 1000000000L) + 1;
+        _wallTextures = LoadWallTextures(assetLoader);
         BuildLevel();
+    }
+
+    private Texture[] LoadWallTextures(IAssetLoader loader)
+    {
+        Texture[] tex = new Texture[4];
+        tex[0] = TryLoadTexture(loader, "w_bumpy.bmp");
+        tex[1] = TryLoadTexture(loader, "w_normal.bmp");
+        tex[2] = TryLoadTexture(loader, "w_pipe.bmp");
+        tex[3] = TryLoadTexture(loader, "w_rust.bmp");
+        return tex;
+    }
+
+    private Texture TryLoadTexture(IAssetLoader loader, string name)
+    {
+        byte[] data = loader.LoadBytes(name);
+        if (data == null || data.Length == 0) return new Texture(1, 1, new byte[] { 200, 200, 200, 255 });
+        return Bmp.Decode(data);
     }
 
     public FrameBuffer Frame => _frame;
@@ -233,6 +252,16 @@ internal sealed class Game
             case 6: _wallColorR = 190; _wallColorG = 160; _wallColorB = 200; break;
             default: _wallColorR = 200; _wallColorG = 200; _wallColorB = 160; break;
         }
+    }
+
+    private Texture SelectWallTexture(int cellX, int cellZ)
+    {
+        int h = (cellX * 1103515245 + cellZ * 12345 + _levelSeed) & 0x7fffffff;
+        int roll = h % 100;
+        if (roll < 10) return _wallTextures[0];
+        if (roll < 75) return _wallTextures[1];
+        if (roll < 80) return _wallTextures[2];
+        return _wallTextures[3];
     }
 
     private void Update(float dt)
@@ -538,13 +567,50 @@ internal sealed class Game
             int top = (int)(ScreenH * 0.5f - lineH * 0.5f + yOffset);
             int bottom = (int)(ScreenH * 0.5f + lineH * 0.5f + yOffset);
 
+            Texture tex = SelectWallTexture(mapX, mapZ);
+            float wallX = side == 0 ? (posZ + perpDist * rayDirZ) : (posX + perpDist * rayDirX);
+            wallX -= MathF.Floor(wallX);
+            int texX = (int)(wallX * tex.Width);
+            if (texX < 0) texX = 0;
+            if (texX >= tex.Width) texX = tex.Width - 1;
+            if (side == 0 && rayDirX > 0) texX = tex.Width - texX - 1;
+            if (side == 1 && rayDirZ < 0) texX = tex.Width - texX - 1;
+
+            float lineHf = lineH <= 1 ? 1f : lineH;
+            float step = tex.Height / lineHf;
+            float texPos = (top - yOffset - ScreenH * 0.5f + lineHf * 0.5f) * step;
+
+            int drawStart = top;
+            int drawEnd = bottom;
+            if (drawStart < 0) drawStart = 0;
+            if (drawEnd > ScreenH) drawEnd = ScreenH;
+
             byte shade = (byte)(255 - MathF.Min(220f, worldDist * 0.6f));
             float sideMul = side == 0 ? 1f : 0.85f;
-            byte r = (byte)(MathF.Min(255f, shade * (_wallColorR / 255f) * sideMul));
-            byte g = (byte)(MathF.Min(255f, shade * (_wallColorG / 255f) * sideMul));
-            byte b = (byte)(MathF.Min(255f, shade * (_wallColorB / 255f) * sideMul));
 
-            _frame.DrawColumn(sx + rayStep / 2, top, bottom, rayStep, r, g, b);
+            int xStart = sx;
+            int xEnd = sx + rayStep;
+            if (xEnd > ScreenW) xEnd = ScreenW;
+
+            for (int x = xStart; x < xEnd; x++)
+            {
+                float tp = texPos;
+                for (int y = drawStart; y < drawEnd; y++)
+                {
+                    int texY = (int)tp;
+                    if (texY < 0) texY = 0;
+                    if (texY >= tex.Height) texY = tex.Height - 1;
+                    tex.Sample(texX, texY, out byte tr, out byte tg, out byte tb, out byte ta);
+                    if (ta > 0)
+                    {
+                        byte r = (byte)(MathF.Min(255f, shade * (tr / 255f) * (_wallColorR / 255f) * sideMul));
+                        byte g = (byte)(MathF.Min(255f, shade * (tg / 255f) * (_wallColorG / 255f) * sideMul));
+                        byte b = (byte)(MathF.Min(255f, shade * (tb / 255f) * (_wallColorB / 255f) * sideMul));
+                        _frame.SetPixel(x, y, r, g, b);
+                    }
+                    tp += step;
+                }
+            }
 
             int fillEnd = sx + rayStep;
             if (fillEnd > ScreenW) fillEnd = ScreenW;
