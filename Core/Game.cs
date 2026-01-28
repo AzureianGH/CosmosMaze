@@ -16,6 +16,7 @@ internal sealed class Game
     private readonly float[] _wallDepth;
     private readonly int[] _levelSizes;
     private readonly Texture[] _wallTextures;
+    private readonly Texture _floorRoofTexture;
 
     private float _camX;
     private float _camY;
@@ -62,6 +63,7 @@ internal sealed class Game
         _levelIndex = 0;
         _levelSeed = (int)(DateTime.UtcNow.Ticks % 1000000000L) + 1;
         _wallTextures = LoadWallTextures(assetLoader);
+        _floorRoofTexture = TryLoadTexture(assetLoader, "w_floorroof.bmp");
         BuildLevel();
     }
 
@@ -78,7 +80,7 @@ internal sealed class Game
     private Texture TryLoadTexture(IAssetLoader loader, string name)
     {
         byte[] data = loader.LoadBytes(name);
-        if (data == null || data.Length == 0) return new Texture(1, 1, new byte[] { 200, 200, 200, 255 });
+        if (data == null || data.Length == 0) return new Texture(1, 1, new byte[] { 255, 0, 255, 255 });
         return Bmp.Decode(data);
     }
 
@@ -463,7 +465,7 @@ internal sealed class Game
 
     private void Render()
     {
-        _frame.Clear(20, 20, 25);
+        _frame.Clear(22, 22, 22);
 
         float cy = MathF.Cos(_yaw);
         float sy = MathF.Sin(_yaw);
@@ -483,6 +485,8 @@ internal sealed class Game
 
         int rayStep = 2;
         float yOffset = -_pitch * (ScreenH * 0.5f);
+
+        DrawBaseFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset);
 
         for (int i = 0; i < _wallDepth.Length; i++) _wallDepth[i] = 1e9f;
 
@@ -578,14 +582,15 @@ internal sealed class Game
 
             float lineHf = lineH <= 1 ? 1f : lineH;
             float step = tex.Height / lineHf;
-            float texPos = (top - yOffset - ScreenH * 0.5f + lineHf * 0.5f) * step;
 
             int drawStart = top;
             int drawEnd = bottom;
             if (drawStart < 0) drawStart = 0;
             if (drawEnd > ScreenH) drawEnd = ScreenH;
+            float texPos = (drawStart - top) * step;
 
             byte shade = (byte)(255 - MathF.Min(220f, worldDist * 0.6f));
+            shade = (byte)MathF.Min(255f, shade * 1.25f);
             float sideMul = side == 0 ? 1f : 0.85f;
 
             int xStart = sx;
@@ -634,7 +639,6 @@ internal sealed class Game
 
     private void DrawGoalFloor(float forwardX, float forwardZ, float planeX, float planeZ, float posX, float posZ, float yOffset)
     {
-        DrawBaseFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset);
         int goalCellX = (int)((_goalX - _startX) / _cell);
         int goalCellZ = (int)((_goalZ - _startZ) / _cell);
         DrawTileOnFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset, goalCellX, goalCellZ, 20, 220, 80);
@@ -642,14 +646,15 @@ internal sealed class Game
 
     private void DrawBaseFloor(float forwardX, float forwardZ, float planeX, float planeZ, float posX, float posZ, float yOffset)
     {
-        float rayDirX0 = forwardX - planeX;
-        float rayDirZ0 = forwardZ - planeZ;
-        float rayDirX1 = forwardX + planeX;
-        float rayDirZ1 = forwardZ + planeZ;
-
         int halfH = ScreenH / 2;
         int horizon = (int)(halfH + yOffset);
         float camHeight = (_wallH * EyeHeightRatio) / _cell;
+        float ceilHeight = camHeight;
+        int texW = _floorRoofTexture.Width;
+        int texH = _floorRoofTexture.Height;
+
+        int texMaskX = texW - 1;
+        int texMaskY = texH - 1;
 
         for (int y = horizon; y < ScreenH; y++)
         {
@@ -657,22 +662,45 @@ internal sealed class Game
             if (p <= 0) continue;
 
             float rowDist = (camHeight * halfH) / p;
-            float floorStepX = rowDist * (rayDirX1 - rayDirX0) / ScreenW;
-            float floorStepZ = rowDist * (rayDirZ1 - rayDirZ0) / ScreenW;
-            float floorX = posX + rowDist * rayDirX0;
-            float floorZ = posZ + rowDist * rayDirZ0;
-            float worldDist = rowDist * _cell;
-
             for (int x = 0; x < ScreenW; x++)
             {
-                if (worldDist < _wallDepth[x])
-                {
-                    byte shade = (byte)(20 + MathF.Min(90f, worldDist * 0.35f));
-                    _frame.SetPixel(x, y, shade, shade, shade);
-                }
+                float cameraX = (2f * x / ScreenW) - 1f;
+                float rayDirX = forwardX + planeX * cameraX;
+                float rayDirZ = forwardZ + planeZ * cameraX;
+                float floorX = posX + rowDist * rayDirX;
+                float floorZ = posZ + rowDist * rayDirZ;
 
-                floorX += floorStepX;
-                floorZ += floorStepZ;
+                int tx = ((int)(floorX * texW)) & texMaskX;
+                int ty = ((int)(floorZ * texH)) & texMaskY;
+                _floorRoofTexture.Sample(tx, ty, out byte tr, out byte tg, out byte tb, out byte ta);
+                byte r = (byte)(tr * (_wallColorR / 255f));
+                byte g = (byte)(tg * (_wallColorG / 255f));
+                byte b = (byte)(tb * (_wallColorB / 255f));
+                _frame.SetPixel(x, y, r, g, b);
+            }
+        }
+
+        for (int y = horizon - 1; y >= 0; y--)
+        {
+            int p = horizon - y;
+            if (p <= 0) continue;
+
+            float rowDist = (ceilHeight * halfH) / p;
+            for (int x = 0; x < ScreenW; x++)
+            {
+                float cameraX = (2f * x / ScreenW) - 1f;
+                float rayDirX = forwardX + planeX * cameraX;
+                float rayDirZ = forwardZ + planeZ * cameraX;
+                float ceilX = posX + rowDist * rayDirX;
+                float ceilZ = posZ + rowDist * rayDirZ;
+
+                int tx = ((int)(ceilX * texW)) & texMaskX;
+                int ty = ((int)(ceilZ * texH)) & texMaskY;
+                _floorRoofTexture.Sample(tx, ty, out byte tr, out byte tg, out byte tb, out byte ta);
+                byte r = (byte)(tr * (_wallColorR / 255f));
+                byte g = (byte)(tg * (_wallColorG / 255f));
+                byte b = (byte)(tb * (_wallColorB / 255f));
+                _frame.SetPixel(x, y, r, g, b);
             }
         }
     }
@@ -734,11 +762,6 @@ internal sealed class Game
 
     private void DrawTileOnFloor(float forwardX, float forwardZ, float planeX, float planeZ, float posX, float posZ, float yOffset, int cellXTarget, int cellZTarget, byte r, byte g, byte b)
     {
-        float rayDirX0 = forwardX - planeX;
-        float rayDirZ0 = forwardZ - planeZ;
-        float rayDirX1 = forwardX + planeX;
-        float rayDirZ1 = forwardZ + planeZ;
-
         int halfH = ScreenH / 2;
         int horizon = (int)(halfH + yOffset);
         float camHeight = (_wallH * EyeHeightRatio) / _cell;
@@ -749,16 +772,17 @@ internal sealed class Game
             if (p <= 0) continue;
 
             float rowDist = (camHeight * halfH) / p;
-            float floorStepX = rowDist * (rayDirX1 - rayDirX0) / ScreenW;
-            float floorStepZ = rowDist * (rayDirZ1 - rayDirZ0) / ScreenW;
-            float floorX = posX + rowDist * rayDirX0;
-            float floorZ = posZ + rowDist * rayDirZ0;
             float worldDist = rowDist * _cell;
 
             for (int x = 0; x < ScreenW; x++)
             {
                 if (worldDist < _wallDepth[x])
                 {
+                    float cameraX = (2f * x / ScreenW) - 1f;
+                    float rayDirX = forwardX + planeX * cameraX;
+                    float rayDirZ = forwardZ + planeZ * cameraX;
+                    float floorX = posX + rowDist * rayDirX;
+                    float floorZ = posZ + rowDist * rayDirZ;
                     int cellX = (int)floorX;
                     int cellZ = (int)floorZ;
                     if (cellX == cellXTarget && cellZ == cellZTarget)
@@ -766,9 +790,6 @@ internal sealed class Game
                         _frame.SetPixel(x, y, r, g, b);
                     }
                 }
-
-                floorX += floorStepX;
-                floorZ += floorStepZ;
             }
         }
     }
