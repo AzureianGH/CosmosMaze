@@ -23,8 +23,8 @@ internal sealed class TtfRasterizer
         if (height < 1) height = 1;
 
         font.GetHorizontalMetrics(glyphIndex, out ushort advanceWidth, out short leftSideBearing);
-        int bearingX = (int)MathF.Floor(leftSideBearing * scale);
-        int bearingY = (int)MathF.Floor(glyph.YMax * scale);
+        int bearingX = (int)MathF.Round(leftSideBearing * scale);
+        int bearingY = (int)MathF.Round(glyph.YMax * scale);
 
         List<List<PointF>> contours = BuildContours(glyph);
         List<List<PointF>> polys = new List<List<PointF>>(contours.Count);
