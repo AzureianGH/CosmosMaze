@@ -16,7 +16,8 @@ internal sealed class TextRenderer
         if (string.IsNullOrEmpty(text)) return;
         int penX = x;
         float scale = pixelSize / (float)_cache.Font.UnitsPerEm;
-        int baseline = y;
+        int ascent = (int)MathF.Round(_cache.Font.Ascent * scale);
+        int baseline = y + ascent;
         int lineHeight = (int)MathF.Round((_cache.Font.Ascent - _cache.Font.Descent) * scale);
 
         for (int i = 0; i < text.Length; i++)
