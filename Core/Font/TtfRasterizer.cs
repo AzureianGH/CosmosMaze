@@ -35,10 +35,11 @@ internal sealed class TtfRasterizer
         }
 
         byte[] alpha = new byte[width * height];
+        List<Intersection> intersections = new List<Intersection>(128);
         for (int y = 0; y < height; y++)
         {
             float scanY = y + 0.5f;
-            List<float> intersections = new List<float>(64);
+            intersections.Clear();
             for (int c = 0; c < polys.Count; c++)
             {
                 List<PointF> p = polys[c];
@@ -47,27 +48,57 @@ internal sealed class TtfRasterizer
                 {
                     PointF a = p[i];
                     PointF b = p[(i + 1) % count];
-                    if ((a.Y <= scanY && b.Y > scanY) || (b.Y <= scanY && a.Y > scanY))
-                    {
-                        float t = (scanY - a.Y) / (b.Y - a.Y);
-                        intersections.Add(a.X + t * (b.X - a.X));
-                    }
+                    bool crosses = (a.Y <= scanY && b.Y > scanY) || (b.Y <= scanY && a.Y > scanY);
+                    if (!crosses) continue;
+                    float t = (scanY - a.Y) / (b.Y - a.Y);
+                    float x = a.X + t * (b.X - a.X);
+                    int winding = b.Y > a.Y ? 1 : -1;
+                    intersections.Add(new Intersection(x, winding));
                 }
             }
 
             intersections.Sort();
-            for (int i = 0; i + 1 < intersections.Count; i += 2)
+            int windingCount = 0;
+            float spanStart = 0f;
+            bool inSpan = false;
+            for (int i = 0; i < intersections.Count; i++)
             {
-                int x0 = (int)MathF.Ceiling(intersections[i]);
-                int x1 = (int)MathF.Floor(intersections[i + 1]);
-                if (x1 < 0 || x0 >= width) continue;
-                if (x0 < 0) x0 = 0;
-                if (x1 >= width) x1 = width - 1;
-                int yy = (height - 1 - y);
-                int idx = yy * width + x0;
-                for (int x = x0; x <= x1; x++)
+                Intersection inter = intersections[i];
+                int prev = windingCount;
+                windingCount += inter.Winding;
+                if (prev == 0 && windingCount != 0)
                 {
-                    alpha[idx++] = 255;
+                    spanStart = inter.X;
+                    inSpan = true;
+                    continue;
+                }
+
+                if (prev != 0 && windingCount == 0 && inSpan)
+                {
+                    float spanEnd = inter.X;
+                    if (spanEnd < spanStart)
+                    {
+                        float tmp = spanStart;
+                        spanStart = spanEnd;
+                        spanEnd = tmp;
+                    }
+
+                    int x0 = (int)MathF.Ceiling(spanStart);
+                    int x1 = (int)MathF.Floor(spanEnd);
+                    if (x1 < 0 || x0 >= width)
+                    {
+                        inSpan = false;
+                        continue;
+                    }
+                    if (x0 < 0) x0 = 0;
+                    if (x1 >= width) x1 = width - 1;
+                    int yy = (height - 1 - y);
+                    int idx = yy * width + x0;
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        alpha[idx++] = 255;
+                    }
+                    inSpan = false;
                 }
             }
         }
@@ -207,6 +238,23 @@ internal sealed class TtfRasterizer
             X = x;
             Y = y;
             On = on;
+        }
+    }
+
+    private readonly struct Intersection : IComparable<Intersection>
+    {
+        public readonly float X;
+        public readonly int Winding;
+
+        public Intersection(float x, int winding)
+        {
+            X = x;
+            Winding = winding;
+        }
+
+        public int CompareTo(Intersection other)
+        {
+            return X.CompareTo(other.X);
         }
     }
 }
