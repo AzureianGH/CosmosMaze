@@ -17,6 +17,8 @@ internal sealed class Game
     private readonly int[] _levelSizes;
     private readonly Texture[] _wallTextures;
     private readonly Texture _floorRoofTexture;
+    private readonly Font.FontCache _fontCache;
+    private readonly Font.TextRenderer _text;
 
     private float _camX;
     private float _camY;
@@ -30,6 +32,7 @@ internal sealed class Game
     private int _levelSeed;
     private int _floorIndex;
     private int _floorCount;
+    private int _mazeCount;
 
     private Maze[] _floors = Array.Empty<Maze>();
     private Maze _maze = null!;
@@ -64,6 +67,8 @@ internal sealed class Game
         _levelSeed = (int)(DateTime.UtcNow.Ticks % 1000000000L) + 1;
         _wallTextures = LoadWallTextures(assetLoader);
         _floorRoofTexture = TryLoadTexture(assetLoader, "w_floorroof.bmp");
+        _fontCache = new Font.FontCache(Font.TtfFont.Load(assetLoader.LoadBytes("vcr.ttf")));
+        _text = new Font.TextRenderer(_fontCache);
         BuildLevel();
     }
 
@@ -100,6 +105,7 @@ internal sealed class Game
         _floorCols = new int[_floorCount];
         _floorStartX = new float[_floorCount];
         _floorStartZ = new float[_floorCount];
+        _mazeCount++;
 
         int s = _levelSeed;
         int NextSizeIndex()
@@ -637,6 +643,8 @@ internal sealed class Game
         {
             DrawStairFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset);
         }
+
+        _text.DrawText(_frame, $"Maze {_mazeCount} => Level {_floorIndex}", 12, 24, 18, 255, 255, 255);
 
         if (_minimapOn) DrawMinimap(forwardX, forwardZ, posX, posZ);
     }
