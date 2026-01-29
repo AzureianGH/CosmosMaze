@@ -366,7 +366,10 @@ internal sealed class Game
             _camZ = testZ;
         }
 
-        PlaceGoalIfNeeded();
+        if (_floorIndex == _floorCount - 1)
+        {
+            PlaceGoalIfNeeded();
+        }
 
         TryClimbStairs();
 
@@ -401,6 +404,7 @@ internal sealed class Game
             _startZ = _floorStartZ[_floorIndex];
             _camX = _startX + (_stairCellX[_floorIndex - 1] + 0.5f) * _cell;
             _camZ = _startZ + (_stairCellZ[_floorIndex - 1] + 0.5f) * _cell;
+            _goalPlaced = false;
         }
     }
 
