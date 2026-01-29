@@ -34,71 +34,40 @@ internal sealed class TtfRasterizer
             polys.Add(FlattenContour(normalized, scale, -glyph.XMin * scale + 1, -glyph.YMin * scale + 1));
         }
 
-        byte[] alpha = new byte[width * height];
-        List<Intersection> intersections = new List<Intersection>(128);
-        for (int y = 0; y < height; y++)
+        const int supersample = 2;
+        byte[] alpha;
+        if (supersample <= 1)
         {
-            float scanY = y + 0.5f;
-            intersections.Clear();
-            for (int c = 0; c < polys.Count; c++)
+            alpha = new byte[width * height];
+            FillAlpha(alpha, width, height, polys);
+        }
+        else
+        {
+            int hiWidth = width * supersample;
+            int hiHeight = height * supersample;
+            byte[] hiAlpha = new byte[hiWidth * hiHeight];
+            List<List<PointF>> hiPolys = ScalePolys(polys, supersample);
+            FillAlpha(hiAlpha, hiWidth, hiHeight, hiPolys);
+
+            alpha = new byte[width * height];
+            int kernel = supersample * supersample;
+            for (int y = 0; y < height; y++)
             {
-                List<PointF> p = polys[c];
-                int count = p.Count;
-                for (int i = 0; i < count; i++)
+                for (int x = 0; x < width; x++)
                 {
-                    PointF a = p[i];
-                    PointF b = p[(i + 1) % count];
-                    bool crosses = (a.Y <= scanY && b.Y > scanY) || (b.Y <= scanY && a.Y > scanY);
-                    if (!crosses) continue;
-                    float t = (scanY - a.Y) / (b.Y - a.Y);
-                    float x = a.X + t * (b.X - a.X);
-                    int winding = b.Y > a.Y ? 1 : -1;
-                    intersections.Add(new Intersection(x, winding));
-                }
-            }
-
-            intersections.Sort();
-            int windingCount = 0;
-            float spanStart = 0f;
-            bool inSpan = false;
-            for (int i = 0; i < intersections.Count; i++)
-            {
-                Intersection inter = intersections[i];
-                int prev = windingCount;
-                windingCount += inter.Winding;
-                if (prev == 0 && windingCount != 0)
-                {
-                    spanStart = inter.X;
-                    inSpan = true;
-                    continue;
-                }
-
-                if (prev != 0 && windingCount == 0 && inSpan)
-                {
-                    float spanEnd = inter.X;
-                    if (spanEnd < spanStart)
+                    int sum = 0;
+                    for (int sy = 0; sy < supersample; sy++)
                     {
-                        float tmp = spanStart;
-                        spanStart = spanEnd;
-                        spanEnd = tmp;
+                        int yHi = y * supersample + sy;
+                        int row = (hiHeight - 1 - yHi) * hiWidth;
+                        int xBase = x * supersample;
+                        for (int sx = 0; sx < supersample; sx++)
+                        {
+                            sum += hiAlpha[row + xBase + sx];
+                        }
                     }
-
-                    int x0 = (int)MathF.Ceiling(spanStart);
-                    int x1 = (int)MathF.Floor(spanEnd);
-                    if (x1 < 0 || x0 >= width)
-                    {
-                        inSpan = false;
-                        continue;
-                    }
-                    if (x0 < 0) x0 = 0;
-                    if (x1 >= width) x1 = width - 1;
-                    int yy = (height - 1 - y);
-                    int idx = yy * width + x0;
-                    for (int x = x0; x <= x1; x++)
-                    {
-                        alpha[idx++] = 255;
-                    }
-                    inSpan = false;
+                    int coverage = sum / kernel;
+                    alpha[(height - 1 - y) * width + x] = (byte)coverage;
                 }
             }
         }
@@ -205,6 +174,94 @@ internal sealed class TtfRasterizer
     private static PointF Scale(PointF p, float scale, float offsetX, float offsetY)
     {
         return new PointF(p.X * scale + offsetX, p.Y * scale + offsetY, true);
+    }
+
+    private static List<List<PointF>> ScalePolys(List<List<PointF>> polys, int scale)
+    {
+        List<List<PointF>> scaled = new List<List<PointF>>(polys.Count);
+        for (int c = 0; c < polys.Count; c++)
+        {
+            List<PointF> src = polys[c];
+            List<PointF> dst = new List<PointF>(src.Count);
+            for (int i = 0; i < src.Count; i++)
+            {
+                PointF p = src[i];
+                dst.Add(new PointF(p.X * scale, p.Y * scale, true));
+            }
+            scaled.Add(dst);
+        }
+        return scaled;
+    }
+
+    private static void FillAlpha(byte[] alpha, int width, int height, List<List<PointF>> polys)
+    {
+        List<Intersection> intersections = new List<Intersection>(128);
+        for (int y = 0; y < height; y++)
+        {
+            float scanY = y + 0.5f;
+            intersections.Clear();
+            for (int c = 0; c < polys.Count; c++)
+            {
+                List<PointF> p = polys[c];
+                int count = p.Count;
+                for (int i = 0; i < count; i++)
+                {
+                    PointF a = p[i];
+                    PointF b = p[(i + 1) % count];
+                    bool crosses = (a.Y <= scanY && b.Y > scanY) || (b.Y <= scanY && a.Y > scanY);
+                    if (!crosses) continue;
+                    float t = (scanY - a.Y) / (b.Y - a.Y);
+                    float x = a.X + t * (b.X - a.X);
+                    int winding = b.Y > a.Y ? 1 : -1;
+                    intersections.Add(new Intersection(x, winding));
+                }
+            }
+
+            intersections.Sort();
+            int windingCount = 0;
+            float spanStart = 0f;
+            bool inSpan = false;
+            for (int i = 0; i < intersections.Count; i++)
+            {
+                Intersection inter = intersections[i];
+                int prev = windingCount;
+                windingCount += inter.Winding;
+                if (prev == 0 && windingCount != 0)
+                {
+                    spanStart = inter.X;
+                    inSpan = true;
+                    continue;
+                }
+
+                if (prev != 0 && windingCount == 0 && inSpan)
+                {
+                    float spanEnd = inter.X;
+                    if (spanEnd < spanStart)
+                    {
+                        float tmp = spanStart;
+                        spanStart = spanEnd;
+                        spanEnd = tmp;
+                    }
+
+                    int x0 = (int)MathF.Ceiling(spanStart);
+                    int x1 = (int)MathF.Floor(spanEnd);
+                    if (x1 < 0 || x0 >= width)
+                    {
+                        inSpan = false;
+                        continue;
+                    }
+                    if (x0 < 0) x0 = 0;
+                    if (x1 >= width) x1 = width - 1;
+                    int yy = (height - 1 - y);
+                    int idx = yy * width + x0;
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        alpha[idx++] = 255;
+                    }
+                    inSpan = false;
+                }
+            }
+        }
     }
 
     internal readonly struct GlyphBitmap
