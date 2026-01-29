@@ -644,7 +644,7 @@ internal sealed class Game
             DrawStairFloor(forwardX, forwardZ, planeX, planeZ, posX, posZ, yOffset);
         }
 
-        _text.DrawText(_frame, $"Maze {_mazeCount} => Level {_floorIndex}", 12, 24, 10, 255, 255, 255);
+        _text.DrawText(_frame, $"Maze {_mazeCount} => Level {_floorIndex}", 12, 24, 30, 255, 255, 255, true);
 
         if (_minimapOn) DrawMinimap(forwardX, forwardZ, posX, posZ);
     }

@@ -11,7 +11,7 @@ internal sealed class TextRenderer
         _cache = cache;
     }
 
-    public void DrawText(FrameBuffer fb, string text, int x, int y, int pixelSize, byte r, byte g, byte b)
+    public void DrawText(FrameBuffer fb, string text, int x, int y, int pixelSize, byte r, byte g, byte b, bool clearType)
     {
         if (string.IsNullOrEmpty(text)) return;
         int penX = x;
@@ -45,17 +45,46 @@ internal sealed class TextRenderer
                 {
                     int px = gx + xx;
                     if ((uint)px >= (uint)fb.Width) continue;
-                    byte alpha = a[row + xx];
-                    if (alpha == 0) continue;
 
-                    float af = alpha / 255f;
                     int idx = (py * fb.Width + px) * 4;
                     byte dr = fb.Pixels[idx];
                     byte dg = fb.Pixels[idx + 1];
                     byte db = fb.Pixels[idx + 2];
-                    fb.Pixels[idx] = (byte)(dr + (r - dr) * af);
-                    fb.Pixels[idx + 1] = (byte)(dg + (g - dg) * af);
-                    fb.Pixels[idx + 2] = (byte)(db + (b - db) * af);
+
+                    if (!clearType)
+                    {
+                        byte alpha = a[row + xx];
+                        if (alpha == 0) continue;
+                        float af = alpha / 255f;
+                        fb.Pixels[idx] = (byte)(dr + (r - dr) * af);
+                        fb.Pixels[idx + 1] = (byte)(dg + (g - dg) * af);
+                        fb.Pixels[idx + 2] = (byte)(db + (b - db) * af);
+                        continue;
+                    }
+
+                    float aL = (xx > 0 ? a[row + xx - 1] : (byte)0) / 255f;
+                    float aC = a[row + xx] / 255f;
+                    float aR = (xx + 1 < w ? a[row + xx + 1] : (byte)0) / 255f;
+
+                    if ((aL + aC + aR) == 0f) continue;
+
+                    float covR = 0.20f * aL + 0.80f * aC;
+                    float covG = 0.20f * aL + 0.80f * aC + 0.20f * aR;
+                    float covB = 0.20f * aR + 0.80f * aC;
+
+                    float grey = aC;
+                    const float colorBlend = 0.80f;
+                    covR = grey * (1f - colorBlend) + covR * colorBlend;
+                    covG = grey * (1f - colorBlend) + covG * colorBlend;
+                    covB = grey * (1f - colorBlend) + covB * colorBlend;
+
+                    if (covR > 1f) covR = 1f;
+                    if (covG > 1f) covG = 1f;
+                    if (covB > 1f) covB = 1f;
+
+                    fb.Pixels[idx] = (byte)(dr + (r - dr) * covR);
+                    fb.Pixels[idx + 1] = (byte)(dg + (g - dg) * covG);
+                    fb.Pixels[idx + 2] = (byte)(db + (b - db) * covB);
                 }
             }
 
